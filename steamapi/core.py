@@ -19,7 +19,7 @@ APITypes = {'bool':      bool,
             'uint64':    int,
             'string':    [str],
             'rawbinary': [str, bytes]}
-            
+
 if sys.version_info.major < 3:
     # Starting with Python 3, "str" means unicode and "unicode" is not defined. It is
     # still relevant for Python 2.x, however.
@@ -212,11 +212,11 @@ class APICall(object):
             self._parent._register(self)
 
         if automatic_parsing is True:
-            response_obj = response.json()
-            if len(response_obj.keys()) == 1 and 'response' in response_obj:
-                return APIResponse(response_obj['response'])
-            else:
-                return APIResponse(response_obj)
+            response_obj = response.json(object_hook=APIResponse)
+            try:
+                return response_obj.response
+            except AttributeError:
+                return response_obj
         else:
             if kwargs["format"] == "json":
                 return response.json()
@@ -438,12 +438,18 @@ class APIConnection(object):
         errors.check(response)
 
         if automatic_parsing is True:
-            response_obj = response.json()
-            if len(response_obj.keys()) == 1 and 'response' in response_obj:
-                return APIResponse(response_obj['response'])
-            else:
-                return APIResponse(response_obj)
+            response_obj = response.json(object_hook=APIResponse)
+            try:
+                return response_obj.response
+            except AttributeError:
+                return response_obj
 
+    _cache = None
+    @property
+    def cache(self):
+        if self._cache is None:
+            self._cache = {}
+        return self._cache
 
 class APIResponse(object):
     """
@@ -543,6 +549,31 @@ class SteamObject(object):
     def __hash__(self):
         return hash(self.id)
 
+    @property
+    def _cache(self):
+        return APIConnection().cache
+
+    def _cache_set(self, key, value, ttl=0):
+        return self._cache.set(self._get_cache_key(key), value, ttl)
+
+    def _cache_get(self, key):
+        return self._cache.get(self._get_cache_key(key))
+
+    def _cache_get_or_set(self, key, value_lambda, ttl=0):
+        k = self._get_cache_key(key)
+        v = self._cache.get(k)
+        if v is None:
+            v = value_lambda()
+            self._cache.set(k, v, ttl)
+        return v
+
+    def _get_cache_key(self, attribute=None):
+        cache_key = self.__class__.__name__
+        cache_key += '_%08X' % (hash(self) & 0xFFFFFFFF)
+        if attribute is not None:
+            cache_key += attribute
+        return cache_key
+
 
 def store(obj, property_name, data, received_time=0):
     """
@@ -561,6 +592,7 @@ def store(obj, property_name, data, received_time=0):
         received_time = time.time()
     # Just making sure caching is supported for this object...
     if issubclass(type(obj), SteamObject) or hasattr(obj, "_cache"):
+
         obj._cache[property_name] = (data, received_time)
     else:
         raise TypeError("This object type either doesn't visibly support caching, or has yet to initialise its cache.")
@@ -579,7 +611,7 @@ def expire(obj, property_name):
         del obj._cache[property_name]
     else:
         raise TypeError("This object type either doesn't visibly support caching, or has yet to initialise its cache.")
-        
+
 class _shims:
     """
     A collection of functions used at junction points where a Python 3.x solution potentially degrades functionality
@@ -593,7 +625,7 @@ class _shims:
             non-ASCII characters.
             """
             return string.encode(errors="ignore")
-   
+
     class Python3:
         @staticmethod
         def sanitize_for_console(string):
@@ -601,10 +633,10 @@ class _shims:
             Sanitize a string for console presentation. Does nothing on Python 3.
             """
             return string
-            
+
     if sys.version_info.major >= 3:
         sanitize_for_console = Python3.sanitize_for_console
     else:
         sanitize_for_console = Python2.sanitize_for_console
-        
+
     sanitize_for_console = staticmethod(sanitize_for_console)
