@@ -395,7 +395,10 @@ class SteamUser(SteamObject):
                                         steamid=self.steamid,
                                         include_appinfo=True,
                                         include_played_free_games=True)
-        if response.game_count == 0:
+        # despite a profile *appearing* to be public, it can sometimes act as if
+        # it were private, and just return an empty json document so we'll check
+        # for that
+        if 'game_count' not in response or response.game_count == 0:
             return []
         return self._convert_games_list(response.games, self._id)
 
@@ -410,7 +413,10 @@ class SteamUser(SteamObject):
                                         steamid=self.steamid,
                                         include_appinfo=True,
                                         include_played_free_games=False)
-        if response.game_count == 0:
+        # despite a profile *appearing* to be public, it can sometimes act as if
+        # it were private, and just return an empty json document so we'll check
+        # for that
+        if 'game_count' not in response or response.game_count == 0:
             return []
         return self._convert_games_list(response.games, self._id)
 
